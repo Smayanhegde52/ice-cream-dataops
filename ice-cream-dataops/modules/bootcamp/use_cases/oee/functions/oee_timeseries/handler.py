@@ -70,11 +70,11 @@ def get_time_series_for_site(client: CogniteClient, site, space):
     return time_series
 
 def handle(client: CogniteClient, data: Dict[str, Any] = {}) -> None:
-    lookback_minutes = None
+    lookback = timedelta(minutes=60)
     sites = None
 
     if data:
-        lookback_minutes = timedelta(minutes=data.get("lookback_minutes", 60)).total_seconds() * 1000
+        lookback = timedelta(minutes=data.get("lookback_minutes", 60))
         sites = data.get("sites")
 
     all_sites = [
@@ -90,16 +90,16 @@ def handle(client: CogniteClient, data: Dict[str, Any] = {}) -> None:
         "London",
     ]
 
-    lookback_minutes = lookback_minutes or timedelta(minutes=60).total_seconds() * 1000
     sites = sites or all_sites
 
     print(f"Processing datapoints for these sites: {sites}")
     with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = [executor.submit(process_site, client, lookback_minutes, site) for site in sites]
+        futures = [executor.submit(process_site, client, lookback, site) for site in sites]
         for f in futures:
             f.result()
 
-def process_site(client, lookback_minutes, site):
+
+def process_site(client, lookback, site):
     oee_space = "oee_ts_space"
     source_space = "icapi_dm_space"
 
@@ -121,12 +121,12 @@ def process_site(client, lookback_minutes, site):
         status_node = f"NodeId({source_space}, {asset}:status)"
         planned_status_node = f"NodeId({source_space}, {asset}:planned_status)"
 
-        end = min([dp.timestamp[0] for dp in latest_dps if latest_dps and dp.timestamp], default=None)
+        end = min((dp.timestamp for dp in latest_dps if dp.timestamp), default=None)
 
         if end:
             dps_df = client.time_series.data.retrieve_dataframe(
                 instance_id=[dp.instance_id for dp in latest_dps],
-                start=end - lookback_minutes,
+                start=end - lookback,
                 end=end,
                 aggregates=["sum"],
                 granularity="1m",
@@ -168,7 +168,7 @@ def process_site(client, lookback_minutes, site):
                 # for the specified time range for the calculation to execute.
                 print(
                     f"""{asset}: Unable to retrieve datapoints for all required OEE timeseries (count, good, status, planned_status)
-                    between {end - lookback_minutes} and {end}. Ensure that data is available for the time range specified."""
+                    between {end - lookback} and {end}. Ensure that data is available for the time range specified."""
                 )
 
             # Calculate the components of OEE
